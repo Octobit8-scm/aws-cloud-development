@@ -1,0 +1,41 @@
+{
+  "exclude_paths": [
+    ".terraform",
+    "*.tfstate",
+    "*.tfstate.*",
+    ".terraform.lock.hcl",
+    "terraform.tfvars",
+    "*.pem",
+    "*.key",
+    "*.crt",
+    "*.csr",
+    "*.bak",
+    "*.backup",
+    "*~",
+    "*.tmp",
+    "*.temp"
+  ],
+  "exclude_queries": [
+    "a1c73c7a-0d0f-4b6c-9b5c-0c1c1c1c1c1c1",
+    "b2d84e8b-1e1f-4c7d-8c8d-0d2d2d2d2d2d2"
+  ],
+  "include_queries": [
+    "c3e95f9c-2f2f-4d8e-9d9e-0e3e3e3e3e3e3",
+    "d4f0a0ad-3f3f-4e9f-0e0f-0f4f4f4f4f4f4"
+  ],
+  "minimal_ui": false,
+  "experimental_queries": false,
+  "experimental_secret_queries": false,
+  "disable_secrets": false,
+  "disable_custom_rules": false,
+  "disable_full-descriptions": false,
+  "disable_dynamic_severity": false,
+  "ignore_on_exit": "",
+  "output_format": "json",
+  "output_path": "./kics-results",
+  "output_name": "kics-results.json",
+  "platform_type": "terraform",
+  "verbose": true,
+  "log_level": "INFO",
+  "fail_on": "high"
+} 
