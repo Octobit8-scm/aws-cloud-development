@@ -17,6 +17,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  security-events: write
 
 jobs:
   terraform:
@@ -65,9 +66,17 @@ jobs:
               body: output
             })
 
+  security-scan:
+    name: Security Scan
+    uses: ./.github/workflows/kics-scan.yml
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+
   summary:
     name: CI Summary
-    needs: [terraform]
+    needs: [terraform, security-scan]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -76,15 +85,19 @@ jobs:
         with:
           script: |
             const terraform = '${{ needs.terraform.result }}'
+            const security = '${{ needs.security-scan.result }}'
 
             const summary = `### CI Pipeline Summary
 
             #### Terraform Checks
             - Status: ${terraform === 'success' ? '✅' : '❌'}
 
-            ${terraform !== 'success' ? '⚠️ Terraform checks failed. Please review the logs for details.' : '✅ Terraform checks passed successfully!'}
+            #### Security Scan
+            - Status: ${security === 'success' ? '✅' : '❌'}
 
-            > Note: Security scanning is performed in a separate workflow. Check the "Security" tab for KICS scan results.`
+            ${terraform !== 'success' || security !== 'success' ? '⚠️ Some checks failed. Please review the logs for details.' : '✅ All checks passed successfully!'}
+
+            > Note: Detailed security scan results are available in the "Security" tab.`
 
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
