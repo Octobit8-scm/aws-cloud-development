@@ -1,12 +1,12 @@
-name: KICS Scan
+name: KICS Security Scan
 
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
-  schedule:
-    - cron: "0 0 * * *" # Run daily at midnight
+  workflow_call: {}
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
 
 jobs:
   kics:
@@ -22,27 +22,31 @@ jobs:
       - name: KICS scan
         uses: Checkmarx/kics-action@v1.7.0
         with:
-          path: "./vpc"
+          path: "./terraform"
           output_path: "kics-results"
           output_formats: "json,sarif"
           fail_on: high
-          exclude_paths: .kicsignore
           enable_comments: true
           platform_type: terraform
-          output_name: kics-results
+          output_name: "scan-results"
 
-      - name: List results directory
+      - name: Display KICS results
         if: always()
         run: |
-          echo "Contents of kics-results directory:"
+          echo "KICS Scan Results:"
           ls -la kics-results/
+          if [ -f "kics-results/scan-results.sarif" ]; then
+            echo "SARIF file exists"
+          else
+            echo "SARIF file not found"
+          fi
 
       - name: Upload KICS Results - JSON
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: kics-results-json
-          path: kics-results/*.json
+          path: kics-results/scan-results.json
           retention-days: 7
 
       - name: Upload KICS Results - SARIF
@@ -50,7 +54,7 @@ jobs:
         if: always()
         with:
           name: kics-results-sarif
-          path: kics-results/*.sarif
+          path: kics-results/scan-results.sarif
           retention-days: 7
 
       - name: Upload KICS Results to Security
@@ -58,4 +62,5 @@ jobs:
         if: always()
         continue-on-error: true
         with:
-          sarif_file: kics-results/results.sarif
+          sarif_file: kics-results/scan-results.sarif
+          category: KICS
