@@ -18,34 +18,46 @@ jobs:
 
       - name: Create results directory
         run: |
-          mkdir -p kics-results
+          mkdir -p ${{ github.workspace }}/kics-results
           echo "Created kics-results directory"
-          ls -la
+          ls -la ${{ github.workspace }}
 
       - name: KICS scan
         uses: Checkmarx/kics-action@v1.7.0
         with:
-          path: "./terraform"
+          path: terraform
           output_path: kics-results
-          output_formats: "json,sarif"
+          output_formats: json,sarif
           fail_on: high
           enable_comments: true
           platform_type: terraform
-          output_name: scan-results
+          output_name: results
+
+      - name: List workspace
+        if: always()
+        run: |
+          echo "Current directory: ${{ github.workspace }}"
+          echo "Directory structure:"
+          find ${{ github.workspace }} -type f -name "results.*"
 
       - name: Verify KICS results
         if: always()
         run: |
           echo "Checking KICS results directory:"
-          ls -la kics-results/
-          if [ -f "kics-results/scan-results.sarif" ]; then
+          ls -la ${{ github.workspace }}/kics-results/
+          if [ -f "${{ github.workspace }}/kics-results/results.sarif" ]; then
             echo "SARIF file exists"
-            echo "SARIF file contents:"
-            cat kics-results/scan-results.sarif | head -n 20
+            echo "File size: $(stat -f %z ${{ github.workspace }}/kics-results/results.sarif)"
           else
-            echo "SARIF file not found"
-            echo "Directory contents:"
-            find kics-results -type f -exec ls -l {} \;
+            echo "SARIF file not found. Searching for it:"
+            find ${{ github.workspace }} -type f -name "results.sarif"
+          fi
+          if [ -f "${{ github.workspace }}/kics-results/results.json" ]; then
+            echo "JSON file exists"
+            echo "File size: $(stat -f %z ${{ github.workspace }}/kics-results/results.json)"
+          else
+            echo "JSON file not found. Searching for it:"
+            find ${{ github.workspace }} -type f -name "results.json"
           fi
 
       - name: Upload KICS Results - JSON
@@ -53,7 +65,7 @@ jobs:
         if: always()
         with:
           name: kics-results-json
-          path: kics-results/scan-results.json
+          path: ${{ github.workspace }}/kics-results/results.json
           retention-days: 7
 
       - name: Upload KICS Results - SARIF
@@ -61,7 +73,7 @@ jobs:
         if: always()
         with:
           name: kics-results-sarif
-          path: kics-results/scan-results.sarif
+          path: ${{ github.workspace }}/kics-results/results.sarif
           retention-days: 7
 
       - name: Upload KICS Results to Security
@@ -69,5 +81,5 @@ jobs:
         if: always()
         continue-on-error: true
         with:
-          sarif_file: kics-results/scan-results.sarif
+          sarif_file: ${{ github.workspace }}/kics-results/results.sarif
           category: KICS

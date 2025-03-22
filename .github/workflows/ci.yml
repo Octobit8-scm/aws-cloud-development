@@ -52,22 +52,45 @@ jobs:
 
       - name: Post Format Results
         if: always() && github.event_name == 'pull_request' && steps.fmt.outcome == 'failure'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const output = `#### Terraform Format Check Failed 🔴
             Please run \`terraform fmt -recursive\` to fix formatting issues.`;
 
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: output
-            })
+            });
+
+      - name: Post Validation Results
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const formatStatus = steps.fmt.outcome === 'success' ? '✅' : '❌';
+            const initStatus = steps.init.outcome === 'success' ? '✅' : '❌';
+            const validateStatus = steps.validate.outcome === 'success' ? '✅' : '❌';
+
+            const output = `### Terraform Checks Summary
+            * Format Check: ${formatStatus}
+            * Init: ${initStatus}
+            * Validate: ${validateStatus}
+
+            ${steps.validate.outcome === 'failure' ? '⚠️ Please fix validation errors before merging.' : ''}`;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
 
   security-scan:
     name: Security Scan
+    needs: terraform
     uses: ./.github/workflows/kics-scan.yml
     permissions:
       contents: read
