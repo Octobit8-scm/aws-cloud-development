@@ -16,22 +16,39 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Create results directory
+        run: mkdir -p kics-results
+
       - name: KICS scan
         uses: Checkmarx/kics-action@v1.7.0
         with:
           path: "./vpc"
-          output_path: "./kics-results"
-          output_formats: "json"
+          output_path: "kics-results"
+          output_formats: "json,sarif"
           fail_on: high
           exclude_paths: .kicsignore
           enable_comments: true
           platform_type: terraform
-          output_name: kics-results.json
+          output_name: kics-results
 
-      - name: Upload KICS Results
+      - name: Upload KICS Results - JSON
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: kics-results
-          path: kics-results/
+          name: kics-results-json
+          path: kics-results/kics-results.json
           retention-days: 7
+
+      - name: Upload KICS Results - SARIF
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kics-results-sarif
+          path: kics-results/kics-results.sarif
+          retention-days: 7
+
+      - name: Upload KICS Results - HTML
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: kics-results/kics-results.sarif
