@@ -40,6 +40,31 @@ variable "private_subnet_cidrs" {
   default     = ["10.0.4.0/24", "10.0.5.0/24", "10.0.6.0/24"]
 }
 
+variable "firewall_subnet_cidrs" {
+  description = "CIDR blocks for firewall subnets"
+  type        = list(string)
+  default     = ["10.0.7.0/24", "10.0.8.0/24", "10.0.9.0/24"]
+}
+
+variable "blocked_domains" {
+  description = "List of domain names to block"
+  type        = list(string)
+  default = [
+    "*.malicious-domain.com",
+    "*.suspicious-site.net"
+  ]
+}
+
+variable "allowed_ip_ranges" {
+  description = "List of allowed IP CIDR ranges"
+  type        = list(string)
+  default = [
+    "10.0.0.0/8",    # Internal network
+    "172.16.0.0/12", # VPC network
+    "192.168.0.0/16" # Private network
+  ]
+}
+
 # EC2 Instance Variables
 variable "instance_ami" {
   description = "AMI ID for the EC2 instance"
@@ -57,4 +82,40 @@ variable "root_volume_size" {
   description = "Size of the root volume in GB"
   type        = number
   default     = 30
+}
+
+variable "allowed_http_cidrs" {
+  description = "List of CIDR blocks allowed to access HTTP (port 80)"
+  type        = list(string)
+  default     = ["10.0.0.0/8"] # Default to internal network only
+}
+
+variable "allowed_https_cidrs" {
+  description = "List of CIDR blocks allowed to access HTTPS (port 443)"
+  type        = list(string)
+  default     = ["10.0.0.0/8"] # Default to internal network only
+}
+
+variable "assign_public_ip" {
+  description = "Whether to assign public IPs to instances in the public subnet (should be false by default for security)"
+  type        = bool
+  default     = false
+}
+
+variable "flow_log_retention_days" {
+  description = "Number of days to retain VPC Flow Logs in CloudWatch"
+  type        = number
+  default     = 30 # 30 days retention by default
+}
+
+variable "analyzer_log_retention_days" {
+  description = "Number of days to retain Access Analyzer logs in CloudWatch"
+  type        = number
+  default     = 90 # 90 days retention by default for security audit purposes
+}
+
+variable "domain_name" {
+  description = "Domain name for Shield Advanced health checks"
+  type        = string
+  default     = "example.com" # Replace with your actual domain
 }

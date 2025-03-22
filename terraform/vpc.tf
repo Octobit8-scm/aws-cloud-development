@@ -47,12 +47,14 @@ resource "aws_subnet" "public" {
   cidr_block        = var.public_subnet_cidrs[count.index]
   availability_zone = var.availability_zones[count.index]
 
-  map_public_ip_on_launch = true
+  # Disable automatic public IP assignment
+  map_public_ip_on_launch = false
 
   tags = {
-    Name        = "${var.project_name}-public-subnet-${count.index + 1}"
-    Environment = var.environment
-    Type        = "Public"
+    Name                     = "${var.project_name}-public-subnet-${count.index + 1}"
+    Environment              = var.environment
+    Type                     = "Public"
+    "kubernetes.io/role/elb" = "1" # Tag for AWS Load Balancer controller if using k8s
   }
 }
 
@@ -63,11 +65,54 @@ resource "aws_subnet" "private" {
   cidr_block        = var.private_subnet_cidrs[count.index]
   availability_zone = var.availability_zones[count.index]
 
+  # Ensure no public IPs are assigned
+  map_public_ip_on_launch = false
+
   tags = {
-    Name        = "${var.project_name}-private-subnet-${count.index + 1}"
-    Environment = var.environment
-    Type        = "Private"
+    Name                              = "${var.project_name}-private-subnet-${count.index + 1}"
+    Environment                       = var.environment
+    Type                              = "Private"
+    "kubernetes.io/role/internal-elb" = "1" # Tag for AWS Load Balancer controller if using k8s
   }
+}
+
+# Create Firewall Subnets
+resource "aws_subnet" "firewall" {
+  count             = length(var.firewall_subnet_cidrs)
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = var.firewall_subnet_cidrs[count.index]
+  availability_zone = var.availability_zones[count.index]
+
+  # Ensure no public IPs are assigned
+  map_public_ip_on_launch = false
+
+  tags = {
+    Name        = "${var.project_name}-firewall-subnet-${count.index + 1}"
+    Environment = var.environment
+    Type        = "Firewall"
+  }
+}
+
+# Create Firewall Route Table
+resource "aws_route_table" "firewall" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
+
+  tags = {
+    Name        = "${var.project_name}-firewall-rt"
+    Environment = var.environment
+  }
+}
+
+# Associate Firewall Subnets with Firewall Route Table
+resource "aws_route_table_association" "firewall" {
+  count          = length(var.firewall_subnet_cidrs)
+  subnet_id      = aws_subnet.firewall[count.index].id
+  route_table_id = aws_route_table.firewall.id
 }
 
 # Create Public Route Table
@@ -75,8 +120,8 @@ resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
   route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
+    cidr_block      = "0.0.0.0/0"
+    vpc_endpoint_id = aws_networkfirewall_firewall.main.firewall_status[0].sync_states[0].attachment[0].endpoint_id
   }
 
   tags = {
@@ -90,8 +135,8 @@ resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
   route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
+    cidr_block      = "0.0.0.0/0"
+    vpc_endpoint_id = aws_networkfirewall_firewall.main.firewall_status[0].sync_states[0].attachment[0].endpoint_id
   }
 
   tags = {
@@ -120,25 +165,48 @@ resource "aws_security_group" "public" {
   description = "Security group for public subnets"
   vpc_id      = aws_vpc.main.id
 
+  # Allow inbound HTTP only from allowed CIDR blocks
   ingress {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.allowed_http_cidrs
+    description = "Allow HTTP access from specified IPs only"
   }
 
+  # Allow inbound HTTPS only from allowed CIDR blocks
   ingress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.allowed_https_cidrs
+    description = "Allow HTTPS access from specified IPs only"
+  }
+
+  # Allow outbound traffic to private security group only
+  egress {
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    security_groups = [aws_security_group.private.id]
+    description     = "Allow all outbound traffic to private security group"
+  }
+
+  # Allow outbound HTTP/HTTPS for updates through NAT Gateway
+  egress {
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = [aws_vpc_endpoint.s3.prefix_list_id]
+    description     = "Allow HTTP outbound for updates via S3 endpoint"
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    prefix_list_ids = [aws_vpc_endpoint.s3.prefix_list_id]
+    description     = "Allow HTTPS outbound for updates via S3 endpoint"
   }
 
   tags = {
@@ -153,18 +221,38 @@ resource "aws_security_group" "private" {
   description = "Security group for private subnets"
   vpc_id      = aws_vpc.main.id
 
+  # Allow inbound traffic from public security group on specific ports
   ingress {
-    from_port       = 0
-    to_port         = 0
-    protocol        = "-1"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
     security_groups = [aws_security_group.public.id]
+    description     = "Allow HTTP from public security group only"
+  }
+
+  ingress {
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.public.id]
+    description     = "Allow HTTPS from public security group only"
+  }
+
+  # Allow outbound HTTP/HTTPS for updates through VPC endpoints
+  egress {
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = [aws_vpc_endpoint.s3.prefix_list_id]
+    description     = "Allow HTTP outbound for updates via S3 endpoint"
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    prefix_list_ids = [aws_vpc_endpoint.s3.prefix_list_id]
+    description     = "Allow HTTPS outbound for updates via S3 endpoint"
   }
 
   tags = {
@@ -172,3 +260,161 @@ resource "aws_security_group" "private" {
     Environment = var.environment
   }
 }
+
+# Create S3 VPC Endpoint
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id       = aws_vpc.main.id
+  service_name = "com.amazonaws.${var.aws_region}.s3"
+
+  tags = {
+    Name        = "${var.project_name}-s3-endpoint"
+    Environment = var.environment
+  }
+}
+
+# Associate S3 VPC Endpoint with Route Tables
+resource "aws_vpc_endpoint_route_table_association" "public_s3" {
+  route_table_id  = aws_route_table.public.id
+  vpc_endpoint_id = aws_vpc_endpoint.s3.id
+}
+
+resource "aws_vpc_endpoint_route_table_association" "private_s3" {
+  route_table_id  = aws_route_table.private.id
+  vpc_endpoint_id = aws_vpc_endpoint.s3.id
+}
+
+# Create CloudWatch Log Group for VPC Flow Logs
+resource "aws_cloudwatch_log_group" "flow_logs" {
+  name              = "/aws/vpc/${var.project_name}-flow-logs"
+  retention_in_days = var.flow_log_retention_days
+  kms_key_id        = aws_kms_key.flow_logs.arn
+
+  tags = {
+    Name        = "${var.project_name}-flow-logs"
+    Environment = var.environment
+  }
+}
+
+# Create KMS Key for Flow Logs Encryption
+resource "aws_kms_key" "flow_logs" {
+  description             = "KMS key for VPC flow logs encryption"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow CloudWatch Logs"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${var.aws_region}.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.project_name}-flow-logs-key"
+    Environment = var.environment
+  }
+}
+
+# Create KMS Alias
+resource "aws_kms_alias" "flow_logs" {
+  name          = "alias/${var.project_name}-flow-logs"
+  target_key_id = aws_kms_key.flow_logs.key_id
+}
+
+# Create IAM Role for Flow Logs
+resource "aws_iam_role" "flow_logs" {
+  name = "${var.project_name}-flow-logs-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "vpc-flow-logs.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.project_name}-flow-logs-role"
+    Environment = var.environment
+  }
+}
+
+# Create IAM Policy for Flow Logs
+resource "aws_iam_role_policy" "flow_logs" {
+  name = "${var.project_name}-flow-logs-policy"
+  role = aws_iam_role.flow_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams"
+        ]
+        Resource = "${aws_cloudwatch_log_group.flow_logs.arn}:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*"
+        ]
+        Resource = aws_kms_key.flow_logs.arn
+      }
+    ]
+  })
+}
+
+# Enable VPC Flow Logs
+resource "aws_flow_log" "main" {
+  iam_role_arn             = aws_iam_role.flow_logs.arn
+  log_destination          = aws_cloudwatch_log_group.flow_logs.arn
+  traffic_type             = "ALL"
+  vpc_id                   = aws_vpc.main.id
+  max_aggregation_interval = 60
+
+  log_format = "$${version} $${account-id} $${interface-id} $${srcaddr} $${dstaddr} $${srcport} $${dstport} $${protocol} $${packets} $${bytes} $${start} $${end} $${action} $${log-status} $${vpc-id} $${subnet-id} $${instance-id} $${type} $${tcp-flags} $${pkt-srcaddr} $${pkt-dstaddr} $${region} $${az-id} $${sublocation-type} $${sublocation-id} $${pkt-src-aws-service} $${pkt-dst-aws-service} $${flow-direction} $${traffic-path}"
+
+  tags = {
+    Name        = "${var.project_name}-flow-logs"
+    Environment = var.environment
+  }
+}
+
+# Get current AWS account ID
+data "aws_caller_identity" "current" {}
