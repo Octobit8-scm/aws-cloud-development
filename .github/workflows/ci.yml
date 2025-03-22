@@ -101,7 +101,7 @@ jobs:
     name: CI Summary
     needs: [terraform, security-scan]
     runs-on: ubuntu-latest
-    if: always() && github.event_name == 'pull_request'
+    if: always()
     steps:
       - name: Check Job Status
         uses: actions/github-script@v6
@@ -123,13 +123,25 @@ jobs:
 
               > Note: Detailed security scan results are available in the "Security" tab.`;
 
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: summary
-              });
+              // Only post comment on pull requests
+              if (context.eventName === 'pull_request') {
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: summary
+                });
+              }
+
+              // Set step output regardless of event type
+              core.setOutput('terraform_status', terraform);
+              core.setOutput('security_status', security);
+              
+              // Fail the job if any checks failed
+              if (terraform !== 'success' || security !== 'success') {
+                core.setFailed('Some checks failed. Please review the logs for details.');
+              }
             } catch (error) {
-              console.error('Error posting summary:', error);
-              core.setFailed(`Failed to post summary: ${error.message}`);
+              console.error('Error in summary job:', error);
+              core.setFailed(`Failed to process summary: ${error.message}`);
             }
