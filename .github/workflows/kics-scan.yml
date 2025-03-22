@@ -31,12 +31,18 @@ jobs:
           platform_type: terraform
           output_name: kics-results
 
+      - name: List results directory
+        if: always()
+        run: |
+          echo "Contents of kics-results directory:"
+          ls -la kics-results/
+
       - name: Upload KICS Results - JSON
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: kics-results-json
-          path: kics-results/kics-results.json
+          path: kics-results/*.json
           retention-days: 7
 
       - name: Upload KICS Results - SARIF
@@ -44,11 +50,12 @@ jobs:
         if: always()
         with:
           name: kics-results-sarif
-          path: kics-results/kics-results.sarif
+          path: kics-results/*.sarif
           retention-days: 7
 
-      - name: Upload KICS Results - HTML
+      - name: Upload KICS Results to Security
         uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true
         with:
-          sarif_file: kics-results/kics-results.sarif
+          sarif_file: kics-results/results.sarif
