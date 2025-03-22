@@ -1,5 +1,25 @@
-# Enable AWS Shield Advanced
+# Enable AWS Shield Advanced Subscription
+resource "aws_shield_subscription" "main" {
+  # Shield Advanced is enabled at the account level
+  # No additional parameters needed
+}
+
+# Enable AWS Shield Advanced at the account level
+resource "aws_shield_protection_group" "account" {
+  depends_on          = [aws_shield_subscription.main]
+  protection_group_id = "${var.project_name}-protection-group"
+  aggregation         = "MAX"
+  pattern             = "ALL"
+
+  tags = {
+    Name        = "${var.project_name}-protection-group"
+    Environment = var.environment
+  }
+}
+
+# Enable AWS Shield Advanced for VPC
 resource "aws_shield_protection" "vpc" {
+  depends_on   = [aws_shield_subscription.main]
   name         = "${var.project_name}-vpc-protection"
   resource_arn = aws_vpc.main.arn
 
@@ -88,18 +108,6 @@ resource "aws_kms_alias" "shield" {
   target_key_id = aws_kms_key.shield.key_id
 }
 
-# Enable AWS Shield Advanced at the account level
-resource "aws_shield_protection_group" "account" {
-  protection_group_id = "${var.project_name}-protection-group"
-  aggregation         = "MAX"
-  pattern             = "ALL"
-
-  tags = {
-    Name        = "${var.project_name}-protection-group"
-    Environment = var.environment
-  }
-}
-
 # Create EventBridge Rule for Shield Events
 resource "aws_cloudwatch_event_rule" "shield_events" {
   name        = "${var.project_name}-shield-events"
@@ -132,8 +140,9 @@ resource "aws_cloudwatch_event_target" "shield_sns" {
   }
 }
 
-# Create Shield Advanced Health Check
+# Create Shield Advanced Health Check Association
 resource "aws_shield_protection_health_check_association" "vpc" {
+  depends_on           = [aws_shield_subscription.main]
   shield_protection_id = aws_shield_protection.vpc.id
   health_check_arn     = aws_route53_health_check.shield.arn
 }

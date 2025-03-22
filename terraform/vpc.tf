@@ -119,30 +119,38 @@ resource "aws_route_table_association" "firewall" {
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
-  route {
-    cidr_block      = "0.0.0.0/0"
-    vpc_endpoint_id = aws_networkfirewall_firewall.main.firewall_status[0].sync_states[0].attachment[0].endpoint_id
-  }
-
   tags = {
     Name        = "${var.project_name}-public-rt"
     Environment = var.environment
   }
 }
 
+# Create route for public subnet through Network Firewall
+resource "aws_route" "public_through_firewall" {
+  route_table_id         = aws_route_table.public.id
+  destination_cidr_block = "0.0.0.0/0"
+  vpc_endpoint_id        = tolist(aws_networkfirewall_firewall.main.firewall_status[0].sync_states)[0].attachment[0].endpoint_id
+
+  depends_on = [aws_networkfirewall_firewall.main]
+}
+
 # Create Private Route Table
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block      = "0.0.0.0/0"
-    vpc_endpoint_id = aws_networkfirewall_firewall.main.firewall_status[0].sync_states[0].attachment[0].endpoint_id
-  }
 
   tags = {
     Name        = "${var.project_name}-private-rt"
     Environment = var.environment
   }
+}
+
+# Create route for private subnet through Network Firewall
+resource "aws_route" "private_through_firewall" {
+  route_table_id         = aws_route_table.private.id
+  destination_cidr_block = "0.0.0.0/0"
+  vpc_endpoint_id        = tolist(aws_networkfirewall_firewall.main.firewall_status[0].sync_states)[0].attachment[0].endpoint_id
+
+  depends_on = [aws_networkfirewall_firewall.main]
 }
 
 # Associate Public Subnets with Public Route Table
@@ -183,16 +191,7 @@ resource "aws_security_group" "public" {
     description = "Allow HTTPS access from specified IPs only"
   }
 
-  # Allow outbound traffic to private security group only
-  egress {
-    from_port       = 0
-    to_port         = 0
-    protocol        = "-1"
-    security_groups = [aws_security_group.private.id]
-    description     = "Allow all outbound traffic to private security group"
-  }
-
-  # Allow outbound HTTP/HTTPS for updates through NAT Gateway
+  # Allow outbound HTTP/HTTPS for updates through VPC endpoints
   egress {
     from_port       = 80
     to_port         = 80
@@ -221,23 +220,6 @@ resource "aws_security_group" "private" {
   description = "Security group for private subnets"
   vpc_id      = aws_vpc.main.id
 
-  # Allow inbound traffic from public security group on specific ports
-  ingress {
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.public.id]
-    description     = "Allow HTTP from public security group only"
-  }
-
-  ingress {
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.public.id]
-    description     = "Allow HTTPS from public security group only"
-  }
-
   # Allow outbound HTTP/HTTPS for updates through VPC endpoints
   egress {
     from_port       = 80
@@ -259,6 +241,37 @@ resource "aws_security_group" "private" {
     Name        = "${var.project_name}-private-sg"
     Environment = var.environment
   }
+}
+
+# Create Security Group Rules for Private Subnet (separate to avoid circular dependency)
+resource "aws_security_group_rule" "private_ingress_http" {
+  type                     = "ingress"
+  from_port                = 80
+  to_port                  = 80
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.public.id
+  security_group_id        = aws_security_group.private.id
+  description              = "Allow HTTP from public security group only"
+}
+
+resource "aws_security_group_rule" "private_ingress_https" {
+  type                     = "ingress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.public.id
+  security_group_id        = aws_security_group.private.id
+  description              = "Allow HTTPS from public security group only"
+}
+
+resource "aws_security_group_rule" "public_egress_private" {
+  type                     = "egress"
+  from_port                = 0
+  to_port                  = 0
+  protocol                 = "-1"
+  source_security_group_id = aws_security_group.private.id
+  security_group_id        = aws_security_group.public.id
+  description              = "Allow all outbound traffic to private security group"
 }
 
 # Create S3 VPC Endpoint
