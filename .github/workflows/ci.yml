@@ -16,7 +16,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
   pull-requests: write
 
 jobs:
@@ -66,59 +65,9 @@ jobs:
               body: output
             })
 
-  kics:
-    name: KICS Security Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Create results directory
-        run: mkdir -p kics-results
-
-      - name: KICS scan
-        uses: Checkmarx/kics-action@v1.7.0
-        with:
-          path: "./terraform"
-          output_path: "kics-results"
-          output_formats: "json,sarif"
-          fail_on: high
-          enable_comments: true
-          platform_type: terraform
-          output_name: kics-results
-
-      - name: List results directory
-        if: always()
-        run: |
-          echo "Contents of kics-results directory:"
-          ls -la kics-results/
-
-      - name: Upload KICS Results - JSON
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: kics-results-json
-          path: kics-results/*.json
-          retention-days: 7
-
-      - name: Upload KICS Results - SARIF
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: kics-results-sarif
-          path: kics-results/*.sarif
-          retention-days: 7
-
-      - name: Upload KICS Results to Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        continue-on-error: true
-        with:
-          sarif_file: kics-results/results.sarif
-
   summary:
     name: CI Summary
-    needs: [terraform, kics]
+    needs: [terraform]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -127,17 +76,15 @@ jobs:
         with:
           script: |
             const terraform = '${{ needs.terraform.result }}'
-            const kics = '${{ needs.kics.result }}'
 
             const summary = `### CI Pipeline Summary
 
             #### Terraform Checks
             - Status: ${terraform === 'success' ? '✅' : '❌'}
 
-            #### KICS Security Scan
-            - Status: ${kics === 'success' ? '✅' : '❌'}
+            ${terraform !== 'success' ? '⚠️ Terraform checks failed. Please review the logs for details.' : '✅ Terraform checks passed successfully!'}
 
-            ${terraform !== 'success' || kics !== 'success' ? '⚠️ Some checks failed. Please review the logs for details.' : '✅ All checks passed successfully!'}`
+            > Note: Security scanning is performed in a separate workflow. Check the "Security" tab for KICS scan results.`
 
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
