@@ -101,30 +101,35 @@ jobs:
     name: CI Summary
     needs: [terraform, security-scan]
     runs-on: ubuntu-latest
-    if: always()
+    if: always() && github.event_name == 'pull_request'
     steps:
       - name: Check Job Status
-        uses: actions/github-script@v7
+        uses: actions/github-script@v6
         with:
           script: |
-            const terraform = '${{ needs.terraform.result }}'
-            const security = '${{ needs.security-scan.result }}'
+            try {
+              const terraform = '${{ needs.terraform.result }}';
+              const security = '${{ needs.security-scan.result }}';
 
-            const summary = `### CI Pipeline Summary
+              const summary = `### CI Pipeline Summary
 
-            #### Terraform Checks
-            - Status: ${terraform === 'success' ? '✅' : '❌'}
+              #### Terraform Checks
+              - Status: ${terraform === 'success' ? '✅' : '❌'}
 
-            #### Security Scan
-            - Status: ${security === 'success' ? '✅' : '❌'}
+              #### Security Scan
+              - Status: ${security === 'success' ? '✅' : '❌'}
 
-            ${terraform !== 'success' || security !== 'success' ? '⚠️ Some checks failed. Please review the logs for details.' : '✅ All checks passed successfully!'}
+              ${terraform !== 'success' || security !== 'success' ? '⚠️ Some checks failed. Please review the logs for details.' : '✅ All checks passed successfully!'}
 
-            > Note: Detailed security scan results are available in the "Security" tab.`
+              > Note: Detailed security scan results are available in the "Security" tab.`;
 
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: summary
-            })
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            } catch (error) {
+              console.error('Error posting summary:', error);
+              core.setFailed(`Failed to post summary: ${error.message}`);
+            }
