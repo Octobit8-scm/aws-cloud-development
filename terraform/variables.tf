@@ -119,3 +119,43 @@ variable "domain_name" {
   type        = string
   default     = "example.com" # Replace with your actual domain
 }
+
+variable "asg_desired_capacity" {
+  description = "The desired number of EC2 instances in the Auto Scaling Group"
+  type        = number
+  default     = 2
+}
+
+variable "asg_min_size" {
+  description = "The minimum number of EC2 instances in the Auto Scaling Group"
+  type        = number
+  default     = 1
+}
+
+variable "asg_max_size" {
+  description = "The maximum number of EC2 instances in the Auto Scaling Group"
+  type        = number
+  default     = 4
+}
+
+variable "required_tags" {
+  description = "Map of required tags that must be applied to EC2 instances"
+  type        = map(string)
+  default = {
+    Environment = "dev"
+    Owner       = "octobit8"
+    CostCenter  = "engineering"
+    Project     = "aws-cloud-development"
+  }
+
+  validation {
+    condition     = length(var.required_tags) >= 4
+    error_message = "At least 4 required tags must be provided: Environment, Owner, CostCenter, and Project."
+  }
+}
+
+variable "enforce_tag_policy" {
+  description = "Whether to enforce tag policy on EC2 instances"
+  type        = bool
+  default     = true
+}
