@@ -117,7 +117,7 @@ variable "analyzer_log_retention_days" {
 variable "domain_name" {
   description = "Domain name for Shield Advanced health checks"
   type        = string
-  default     = "example.com" # Replace with your actual domain
+  default     = "octobit8.com" # Replace with your actual domain
 }
 
 variable "asg_desired_capacity" {
